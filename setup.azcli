@@ -1,0 +1,131 @@
+RG=dapr-rg-anbo
+L=westeurope
+ACR=anbodapracr
+STOR=anbodaprstor
+AKS=anbodapraks
+LAW=anbodaprlaw
+APPIN=anbodaprappin
+REDIS=daprredis
+
+az group create --name $RG --location $L
+
+az acr create --resource-group $RG --name $ACR --sku Basic
+az acr login --name $ACR
+az storage account create --name $STOR --resource-group $RG --location $L --sku Standard_LRS
+# get storage key
+STORKEY=$(az storage account keys list --account-name $STOR --resource-group $RG --query "[0].value" -o tsv)
+
+# create log analytics workspace
+az monitor log-analytics workspace create --resource-group $RG --workspace-name $LAW
+
+# create app insights
+az monitor app-insights component create --app $APPIN --resource-group $RG --location $L --workspace $LAW --kind web
+# get app insights key
+APPINKEY=$(az monitor app-insights component show --app $APPIN --resource-group $RG --query "instrumentationKey" -o tsv)
+
+
+az aks create --resource-group $RG --name $AKS --attach-acr $ACR --enable-cluster-autoscaler --min-count 1 --max-count 10 --node-count 3 --generate-ssh-keys --enable-addons monitoring  --location $L --workspace-resource-id /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RG/providers/Microsoft.OperationalInsights/workspaces/$LAW --enable-managed-identity 
+# enable dapr aks addon https://learn.microsoft.com/en-us/azure/aks/dapr
+# az extension add --name k8s-extension
+# or
+# az extension update --name k8s-extension
+az k8s-extension create --cluster-type managedClusters --cluster-name $AKS --resource-group $RG --name dapr --extension-type Microsoft.Dapr --release-train stable  --auto-upgrade-minor-version true --configuration-settings enableMonitoring=true
+az k8s-extension show --cluster-type managedClusters --cluster-name $AKS --resource-group $RG --name dapr 
+
+
+az aks get-credentials --resource-group $RG --name $AKS
+
+# az create redis
+az redis create --name $REDIS --resource-group $RG --location $L --sku Basic --vm-size c0 --redis-version 6
+# get redis password
+REDISKEY=$(az redis list-keys --name $REDIS --resource-group $RG --query primaryKey -o tsv)
+# get redis hostname
+REDISHOST=$(az redis show --name $REDIS --resource-group $RG --query hostName -o tsv)
+
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-conf
+  labels:
+    app: opentelemetry
+    component: otel-collector-conf
+data:
+  otel-collector-config: |
+    receivers:
+      zipkin:
+        endpoint: 0.0.0.0:9411
+    extensions:
+      health_check:
+      pprof:
+        endpoint: :1888
+      zpages:
+        endpoint: :55679
+    exporters:
+      logging:
+        loglevel: debug
+      azuremonitor:
+        endpoint: "https://dc.services.visualstudio.com/v2/track"
+        instrumentation_key: "$APPINKEY"
+        # maxbatchsize is the maximum number of items that can be
+        # queued before calling to the configured endpoint
+        maxbatchsize: 100
+        # maxbatchinterval is the maximum time to wait before calling
+        # the configured endpoint.
+        maxbatchinterval: 10s
+    service:
+      extensions: [pprof, zpages, health_check]
+      pipelines:
+        traces:
+          receivers: [zipkin]
+          exporters: [azuremonitor,logging]
+EOF
+
+k apply -f open-telemetry-collector-appinsights.yaml
+
+cat <<EOF | kubectl apply -f -
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: redis-pubsub
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: $REDISHOST:6380
+  - name: redisPassword
+    value: "$REDISKEY"
+  - name: enableTLS
+    value: "true"
+EOF
+
+cat <<EOF | kubectl apply -f -
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore
+spec:
+    type: state.azure.blobstorage
+    version: v1
+    metadata:
+    - name: accountName
+      value: "$STOR"
+    - name: accountKey
+      value: "$STORKEY"
+    - name: containerName
+      value: "daprstate"
+EOF
+
+# dapr in-memory pubsub
+cat <<EOF | kubectl apply -f -
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  type: pubsub.in-memory
+  version: v1
+  metadata: []
+EOF

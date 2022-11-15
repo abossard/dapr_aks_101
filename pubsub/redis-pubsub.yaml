@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+spec:
+  metadata:
+  - name: redisHost
+    value: daprredis.redis.cache.windows.net:6380
+  - name: redisPassword
+    value: vXanVWLfxlTR955Ja3LGqxkSSvLRPAmA9AzCaMhMHNc=
+  - name: enableTLS
+    value: "true"
+  type: pubsub.redis
+  version: v1

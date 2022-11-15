@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore
+  namespace: distributed-calc
+
+spec:
+  metadata:
+  - name: accountName
+    value: anbodaprstor
+  - name: accountKey
+    value: l6IqObTcIdzNXFWF68xFLnLhaPA2c+ZKThVGjlQ+lBZOTkI1rYDy28E+D+TjrO/AOpaCtURKP6nU+AStDyhRTA==
+  - name: containerName
+    value: daprstate
+  type: state.azure.blobstorage
+  version: v1
