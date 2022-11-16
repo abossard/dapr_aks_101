@@ -1,5 +1,4 @@
-$InstallationDirectory = "c:\Prj\dapr"
-$Env:DAPR_INSTALL_DIR = $InstallationDirectory
-$Env:USERPROFILE = $InstallationDirectory
-$ScriptPath = $InstallationDirectory + "\dapr.exe"
+$Env:DAPR_INSTALL_DIR = $PSScriptRoot
+$Env:USERPROFILE = $PSScriptRoot
+$ScriptPath = $PSScriptRoot + "\dapr.exe"
 & $ScriptPath @args
