@@ -26,7 +26,9 @@ if (Test-Path $InstallationPostDirectory)
     Remove-Item -Recurse -Force $InstallationPostDirectory
 }
 md $InstallationPostDirectory
-iwr -Uri "https://github.com/dapr/dapr/releases/download/$($Dapr_Version)/daprd_windows_amd64.zip" -Outfile ".\daprd_windows_amd64.zip"
+$uri = "https://github.com/dapr/dapr/releases/download/" + $Dapr_Version + "/daprd_windows_amd64.zip"
+Write-Host $uri
+iwr -Uri $uri -Outfile ".\daprd_windows_amd64.zip"
 Expand-Archive daprd_windows_amd64.zip -DestinationPath .\.dapr\bin
 Remove-Item daprd_windows_amd64.zip
 
